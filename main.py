@@ -1,8 +1,35 @@
 from fastapi import FastAPI, HTTPException, Query, Path
+from pydantic import BaseModel, EmailStr, Field
 import json
+from enum import Enum
+from helpers.helpers import normalize_phone
 
 app = FastAPI()
 
+class GenderValid (str, Enum):
+    male = "male"
+    female = "female"
+    others = "others"
+
+
+class Address(BaseModel):
+    state: str
+    city: str
+    pincode: int = Field(ge=100000, le=999999)
+
+
+
+class Patient(BaseModel):
+    name: str
+    age: int = Field(gt=0, lt=120)
+    gender: GenderValid
+    phone: str = Field(min_length=10, description="Mobile number should have 10 characters", examples=["+91-xxxxxxxxxx"])
+    email: EmailStr
+    address: Address
+    disease: str
+    doctor_assigned: str
+    admission_date: str
+    is_discharged: bool
 
 def load_data():
     with open("./patients.json", "r") as f:
@@ -46,6 +73,54 @@ def get_patient_by_name(name: str = Query(..., description= "Patient name")):
         raise HTTPException(status_code=404, detail="No name found");
 
     return {"status": 200, "data": filter_data}
+
+@app.post("/create")
+def create_patient(data: Patient):
+    patients = load_data()
+    dumped_data = data.model_dump()
+    for patient in patients:
+        if normalize_phone(patient["phone"]) == normalize_phone(dumped_data["phone"]) or patient["email"] == dumped_data["email"]:
+            print("came")
+            raise HTTPException(status_code=400, detail="User already found with this phone or email")
+    
+    dumped_data["id"] = len(patients) + 1
+    patients.append(dumped_data)
+    save_data(patients)
+    return {"status":201, "message": "Patient created successfullt", "data": data}
+
+# @app.put("/update/{patient_id}")
+# def update_patient (patient_id: int, data : Patient):
+#     patients = load_data()
+#     updated_patient = data.model_dump()
+#     for i,patient in enumerate(patients):
+#         if patient["id"] == patient_id:
+#             updated_patient["id"] = patient_id
+#             patients[i] = updated_patient
+#             save_data(patients)
+#             return {"status": 200, "message": "Patient updated successfully", "data": data}
+#     raise HTTPException(status_code=404, detail="Patient not found")
+
+@app.put("/update/{patient_id}")
+def update_patient(patient_id: int, data: Patient):
+    patients = load_data()
+    updated_patient = data.model_dump()
+
+    for i, patient in enumerate(patients):
+        if patient["id"] == patient_id:
+            updated_patient["id"] = patient_id
+
+            # ✅ correct assignment
+            patients[i] = updated_patient
+
+            save_data(patients)
+
+            return {
+                "status": 200,
+                "message": "Patient updated successfully",
+                "data": updated_patient
+            }
+
+    raise HTTPException(status_code=404, detail="Patient not found")
 
 
 @app.delete("/remove/patient/{patient_id}")
